@@ -229,19 +229,21 @@ class ActiveLearningSampler(IterableDataset):
 
 def data_loaders(dir, sampling_method='active_learning', **kwargs):
     if sampling_method == 'active_learning':
-        dataset = CloudsDataset(dir / 'train')
-        batch_size = kwargs.get('batch_size', 6)
-        val_sampler = ActiveLearningSampler(
-            dataset,
-            batch_size=batch_size,
-            split='validation'
-        )
-        train_sampler = ActiveLearningSampler(
-            dataset,
-            batch_size=batch_size,
-            split='training'
-        )
-        return DataLoader(train_sampler, **kwargs), DataLoader(val_sampler, **kwargs)
+        # dataset = CloudsDataset(dir / 'train')
+        dataset = PointCloudsDataset(dir / 'train')
+        # batch_size = kwargs.get('batch_size', 6)
+        # val_sampler = ActiveLearningSampler(
+        #     dataset,
+        #     batch_size=batch_size,
+        #     split='validation'
+        # )
+        # train_sampler = ActiveLearningSampler(
+        #     dataset,
+        #     batch_size=batch_size,
+        #     split='training'
+        # )
+        # return DataLoader(train_sampler, **kwargs), DataLoader(val_sampler, **kwargs)
+        return DataLoader(dataset, **kwargs), DataLoader(dataset, **kwargs)
 
     if sampling_method == 'naive':
         train_dataset = PointCloudsDataset(dir / 'train')
@@ -251,7 +253,8 @@ def data_loaders(dir, sampling_method='active_learning', **kwargs):
     raise ValueError(f"Dataset sampling method '{sampling_method}' does not exist.")
 
 if __name__ == '__main__':
-    dataset = CloudsDataset('datasets/s3dis/subsampled/train')
+    # dataset = CloudsDataset('datasets/s3dis/subsampled/train')
+    dataset = PointCloudsDataset('datasets/s3dis/train')
     batch_sampler = ActiveLearningSampler(dataset)
     for data in batch_sampler:
         xyz, colors, labels, idx, cloud_idx = data

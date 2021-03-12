@@ -26,6 +26,7 @@ else:
 for area_number in range(1,7):
     print(f'Reencoding point clouds of area {area_number:d}')
     dir = RAW_PATH / f'Area_{area_number:d}'
+    print(dir)
     if not dir.exists():
         warnings.warn(f'Area {area_number:d} not found')
         continue

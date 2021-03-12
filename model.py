@@ -2,7 +2,7 @@ import time
 
 import torch
 import torch.nn as nn
-
+import numpy as np
 try:
     from torch_points import knn
 except (ModuleNotFoundError, ImportError):
@@ -87,7 +87,7 @@ class LocalSpatialEncoding(nn.Module):
         extended_idx = idx.unsqueeze(1).expand(B, 3, N, K)
         extended_coords = coords.transpose(-2,-1).unsqueeze(-1).expand(B, 3, N, K)
         neighbors = torch.gather(extended_coords, 2, extended_idx) # shape (B, 3, N, K)
-        # if USE_CUDA:
+        # if True:
         #     neighbors = neighbors.cuda()
 
         # relative point position encoding
@@ -148,8 +148,10 @@ class LocalFeatureAggregation(nn.Module):
 
         self.lse1 = LocalSpatialEncoding(d_out//2, num_neighbors, device)
         self.lse2 = LocalSpatialEncoding(d_out//2, num_neighbors, device)
+        self.lse3 = LocalSpatialEncoding(d_out//2, num_neighbors, device)
 
         self.pool1 = AttentivePooling(d_out, d_out//2)
+        self.pool11 = AttentivePooling(d_out, d_out//2)
         self.pool2 = AttentivePooling(d_out, d_out)
 
         self.lrelu = nn.LeakyReLU()
@@ -177,6 +179,9 @@ class LocalFeatureAggregation(nn.Module):
         x = self.pool1(x)
 
         x = self.lse2(coords, x, knn_output)
+        x = self.pool11(x)
+
+        x = self.lse3(coords, x, knn_output)
         x = self.pool2(x)
 
         return self.lrelu(self.mlp2(x) + self.shortcut(features))
@@ -189,7 +194,11 @@ class RandLANet(nn.Module):
         # self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.num_neighbors = num_neighbors
         self.decimation = decimation
-
+        self.fc1 = nn.Linear(32, 64)
+        # self.fc1 = nn.Linear(64, 1)
+        # self.fc1 = nn.Linear(32, 64)
+        self.fc2 = nn.Linear(64, 32)
+        self.fc3 = nn.Linear(32, 1)
         self.fc_start = nn.Linear(d_in, 8)
         self.bn_start = nn.Sequential(
             nn.BatchNorm2d(8, eps=1e-6, momentum=0.99),
@@ -202,9 +211,11 @@ class RandLANet(nn.Module):
             LocalFeatureAggregation(32, 64, num_neighbors, device),
             LocalFeatureAggregation(128, 128, num_neighbors, device),
             LocalFeatureAggregation(256, 256, num_neighbors, device)
+            # LocalFeatureAggregation(512, 512, num_neighbors, device)
         ])
 
         self.mlp = SharedMLP(512, 512, activation_fn=nn.ReLU())
+        # self.mlp = SharedMLP(1024, 1024, activation_fn=nn.ReLU())
 
         # decoding layers
         decoder_kwargs = dict(
@@ -213,6 +224,7 @@ class RandLANet(nn.Module):
             activation_fn=nn.ReLU()
         )
         self.decoder = nn.ModuleList([
+            # SharedMLP(2048, 512, **decoder_kwargs),
             SharedMLP(1024, 256, **decoder_kwargs),
             SharedMLP(512, 128, **decoder_kwargs),
             SharedMLP(256, 32, **decoder_kwargs),
@@ -221,10 +233,10 @@ class RandLANet(nn.Module):
 
         # final semantic prediction
         self.fc_end = nn.Sequential(
-            SharedMLP(8, 64, bn=True, activation_fn=nn.ReLU()),
-            SharedMLP(64, 32, bn=True, activation_fn=nn.ReLU()),
+            SharedMLP(8, 64, bn=False, activation_fn=nn.ReLU()),
+            SharedMLP(64, 32, bn=False, activation_fn=nn.ReLU()),
             nn.Dropout(),
-            SharedMLP(32, num_classes)
+            SharedMLP(32, 32)
         )
         self.device = device
 
@@ -248,9 +260,12 @@ class RandLANet(nn.Module):
         d = self.decimation
 
         coords = input[...,:3].clone().cpu()
+
+        print('NNNN', N)  ## number of points 69744
+        print('coords', np.shape(coords)) #coordindates of points [1, 69744, 3]
         x = self.fc_start(input).transpose(-2,-1).unsqueeze(-1)
         x = self.bn_start(x) # shape (B, d, N, 1)
-
+        print("XXXX", np.shape(x)) #[1, 8, 69744, 1]
         decimation_ratio = 1
 
         # <<<<<<<<<< ENCODER
@@ -259,6 +274,9 @@ class RandLANet(nn.Module):
         permutation = torch.randperm(N)
         coords = coords[:,permutation]
         x = x[:,:,permutation]
+
+        print("permutation", np.shape(x))
+        print("Features", np.shape(coords[:,:N//decimation_ratio]))
 
         for lfa in self.encoder:
             # at iteration i, x.shape = (B, N//(d**i), d_in)
@@ -293,11 +311,33 @@ class RandLANet(nn.Module):
 
         # >>>>>>>>>> DECODER
         # inverse permutation
+
+        # print('xx', np.shape(x))
         x = x[:,:,torch.argsort(permutation)]
 
-        scores = self.fc_end(x)
+        # print('x', np.shape(x))
 
-        return scores.squeeze(-1)
+
+        # x = self.fc1(x)
+        # scores = self.fc2(x)
+        scores = self.fc_end(x)
+        scores = scores.squeeze(0)
+        scores = scores.squeeze(0)
+        ##############
+
+        # scores = torch.transpose(scores, 0, 1)
+        ###############
+
+        #####fc123
+        # scores = scores.squeeze(-1)
+        # scores = scores.squeeze(0)
+        # scores = torch.transpose(scores, 0, 1)
+        # scores = self.fc1(scores)
+        # scores = self.fc2(scores)
+        # scores = self.fc3(scores)
+
+        # print('scoressss', np.shape(scores))
+        return scores.squeeze(-1)[0,:]
 
 
 if __name__ == '__main__':
